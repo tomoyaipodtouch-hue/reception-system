@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <base target="_top">
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; margin: 0; padding: 20px; background: #f4f7f9; }
+        #video { width: 100%; max-width: 400px; border-radius: 15px; border: 5px solid #fff; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
+        .result-card { display: none; margin-top: 20px; padding: 20px; background: white; border-radius: 15px; border-top: 8px solid #1a5d9a; }
+        #seat { font-size: 80px; font-weight: bold; color: #d9534f; }
+        #btn-start { padding: 15px 30px; font-size: 18px; border-radius: 10px; border: none; background: #1a5d9a; color: white; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h2>慰労会 受付スキャナー</h2>
+    
+    <div id="setup">
+        <button id="btn-start" onclick="startCamera()">カメラを起動する</button>
+    </div>
+
+    <video id="video" playsinline muted style="display:none;"></video>
+    <canvas id="canvas" style="display:none;"></canvas>
+    <div id="msg" style="margin-top:10px; font-weight:bold;"></div>
+
+    <div id="result" class="result-card">
+        <div id="user-name" style="font-size:24px; font-weight:bold;"></div>
+        <div style="font-size:16px; color:#666;">お座席</div>
+        <div id="seat"></div>
+        <div id="price" style="font-size:24px; font-weight:bold; color:#1a5d9a;"></div>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const msg = document.getElementById('msg');
+        let isScanning = true;
+
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+                video.srcObject = stream;
+                video.style.display = "inline-block";
+                document.getElementById('setup').style.display = "none";
+                video.play();
+                requestAnimationFrame(tick);
+                // 音声読み上げの準備（ブラウザ制限解除）
+                window.speechSynthesis.speak(new SpeechSynthesisUtterance(""));
+            } catch (err) {
+                alert("カメラの起動に失敗しました。設定で許可してください。");
+            }
+        }
+
+        function tick() {
+            if (video.readyState === video.HAVE_ENOUGH_DATA && isScanning) {
+                canvas.height = video.videoHeight;
+                canvas.width = video.videoWidth;
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const code = jsQR(imageData.data, imageData.width, imageData.height);
+
+                if (code) {
+                    isScanning = false;
+                    msg.innerText = "照合中...";
+                    google.script.run.withSuccessHandler(res => {
+                        if (res.status === 'success') {
+                            showResult(res);
+                        } else {
+                            alert("名簿にありません");
+                            isScanning = true;
+                            msg.innerText = "";
+                        }
+                    }).checkIn(code.data);
+                }
+            }
+            requestAnimationFrame(tick);
+        }
+
+        function showResult(res) {
+            msg.innerText = "";
+            document.getElementById('result').style.display = "block";
+            document.getElementById('user-name').innerText = res.name + " 様";
+            document.getElementById('seat').innerText = res.seat;
+            document.getElementById('price').innerText = "会費：" + res.price;
+
+            const uttr = new SpeechSynthesisUtterance(`${res.name}様、お座席は${res.seat}です。会費は${res.price}です。`);
+            window.speechSynthesis.speak(uttr);
+
+            setTimeout(() => {
+                document.getElementById('result').style.display = "none";
+                isScanning = true;
+            }, 6000);
+        }
+    </script>
+</body>
+</html>
