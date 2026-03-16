@@ -1,57 +1,68 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
-    <base target="_top">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>慰労会受付スキャナー</title>
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
     <style>
-        body { font-family: sans-serif; text-align: center; margin: 0; padding: 20px; background: #f4f7f9; }
-        #video { width: 100%; max-width: 400px; border-radius: 15px; border: 5px solid #fff; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
-        .result-card { display: none; margin-top: 20px; padding: 20px; background: white; border-radius: 15px; border-top: 8px solid #1a5d9a; }
-        #seat { font-size: 80px; font-weight: bold; color: #d9534f; }
-        #btn-start { padding: 15px 30px; font-size: 18px; border-radius: 10px; border: none; background: #1a5d9a; color: white; cursor: pointer; }
+        body { font-family: 'Meiryo', sans-serif; text-align: center; background: #1a1a1a; color: white; margin: 0; padding: 20px; }
+        .container { max-width: 500px; margin: 0 auto; }
+        #video { width: 100%; max-width: 400px; border: 4px solid #fff; border-radius: 15px; background: #000; }
+        .result-card { display: none; margin-top: 20px; padding: 30px; background: white; color: #333; border-radius: 25px; box-shadow: 0 15px 35px rgba(0,0,0,0.5); border-top: 10px solid #1a5d9a; }
+        #seat { font-size: 130px; font-weight: bold; color: #d9534f; line-height: 1; margin: 10px 0; }
+        #price { font-size: 35px; font-weight: bold; color: #1a5d9a; background: #f0f4f8; padding: 10px; border-radius: 10px; }
+        .btn { padding: 20px 40px; font-size: 20px; background: #3498db; color: white; border: none; border-radius: 50px; cursor: pointer; font-weight: bold; margin-top: 50px; box-shadow: 0 4px 15px rgba(52,152,219,0.4); }
+        #msg { margin-top: 15px; font-size: 18px; color: #bdc3c7; }
     </style>
 </head>
 <body>
-    <h2>慰労会 受付スキャナー</h2>
-    
-    <div id="setup">
-        <button id="btn-start" onclick="startCamera()">カメラを起動する</button>
-    </div>
+    <div class="container">
+        <h2>慰労会 受付</h2>
+        
+        <div id="setup">
+            <p>カメラでQRコードを読み取ります</p>
+            <button class="btn" onclick="start()">カメラを起動する</button>
+        </div>
 
-    <video id="video" playsinline muted style="display:none;"></video>
-    <canvas id="canvas" style="display:none;"></canvas>
-    <div id="msg" style="margin-top:10px; font-weight:bold;"></div>
+        <video id="video" playsinline muted style="display:none;"></video>
+        <div id="msg"></div>
 
-    <div id="result" class="result-card">
-        <div id="user-name" style="font-size:24px; font-weight:bold;"></div>
-        <div style="font-size:16px; color:#666;">お座席</div>
-        <div id="seat"></div>
-        <div id="price" style="font-size:24px; font-weight:bold; color:#1a5d9a;"></div>
+        <div id="result" class="result-card">
+            <div id="name" style="font-size:30px; font-weight:bold;"></div>
+            <div style="font-size:18px; color:#666; margin-top:10px;">あなたの指定席</div>
+            <div id="seat"></div>
+            <div id="price"></div>
+        </div>
     </div>
 
     <script>
+        // ★ここにGASでデプロイしたURLを貼り付けてください
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbzQKMZTihv2bDHljoFjqkeNRMSrWnQH7chVP089IAv4J0tdzrsdpFKBPTPQ-apei5rH/exec"; 
+
         const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
         const msg = document.getElementById('msg');
         let isScanning = true;
 
-        async function startCamera() {
+        async function start() {
             try {
+                // カメラの使用を要求
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
                 video.srcObject = stream;
                 video.style.display = "inline-block";
                 document.getElementById('setup').style.display = "none";
                 video.play();
                 requestAnimationFrame(tick);
-                // 音声読み上げの準備（ブラウザ制限解除）
+                // ブラウザの音声再生制限を解除するため空の声を出す
                 window.speechSynthesis.speak(new SpeechSynthesisUtterance(""));
             } catch (err) {
-                alert("カメラの起動に失敗しました。設定で許可してください。");
+                alert("カメラの起動に失敗しました。ブラウザの設定で許可してください。");
             }
         }
 
         function tick() {
             if (video.readyState === video.HAVE_ENOUGH_DATA && isScanning) {
+                const canvas = document.createElement("canvas");
                 canvas.height = video.videoHeight;
                 canvas.width = video.videoWidth;
                 const ctx = canvas.getContext("2d");
@@ -60,36 +71,49 @@
                 const code = jsQR(imageData.data, imageData.width, imageData.height);
 
                 if (code) {
-                    isScanning = false;
-                    msg.innerText = "照合中...";
-                    google.script.run.withSuccessHandler(res => {
-                        if (res.status === 'success') {
-                            showResult(res);
-                        } else {
-                            alert("名簿にありません");
-                            isScanning = true;
-                            msg.innerText = "";
-                        }
-                    }).checkIn(code.data);
+                    isScanning = false; // 二重読み込み防止
+                    handleScan(code.data);
                 }
             }
             requestAnimationFrame(tick);
         }
 
-        function showResult(res) {
-            msg.innerText = "";
-            document.getElementById('result').style.display = "block";
-            document.getElementById('user-name').innerText = res.name + " 様";
-            document.getElementById('seat').innerText = res.seat;
-            document.getElementById('price').innerText = "会費：" + res.price;
+        async function handleScan(qrData) {
+            msg.innerText = "照合中...";
+            try {
+                const response = await fetch(GAS_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({ qrData: qrData })
+                });
+                const res = await response.json();
 
-            const uttr = new SpeechSynthesisUtterance(`${res.name}様、お座席は${res.seat}です。会費は${res.price}です。`);
-            window.speechSynthesis.speak(uttr);
+                if (res.status === 'success') {
+                    msg.innerText = "";
+                    const card = document.getElementById('result');
+                    card.style.display = "block";
+                    document.getElementById('name').innerText = res.name + " 様";
+                    document.getElementById('seat').innerText = res.seat;
+                    document.getElementById('price').innerText = "会費：" + Number(res.price).toLocaleString() + "円";
 
-            setTimeout(() => {
-                document.getElementById('result').style.display = "none";
+                    // 音声で案内
+                    const uttr = new SpeechSynthesisUtterance(`${res.name}様、お座席は${res.seat}番です。会費は${res.price}円です。`);
+                    window.speechSynthesis.speak(uttr);
+
+                    // 7秒表示したらスキャン待機に戻る
+                    setTimeout(() => {
+                        card.style.display = "none";
+                        isScanning = true;
+                        msg.innerText = "次のスキャンを待機中...";
+                    }, 7000);
+                } else {
+                    alert("名簿に登録がありません");
+                    isScanning = true;
+                    msg.innerText = "";
+                }
+            } catch (e) {
+                alert("通信エラーが発生しました");
                 isScanning = true;
-            }, 6000);
+            }
         }
     </script>
 </body>
